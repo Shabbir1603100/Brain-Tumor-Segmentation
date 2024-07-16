@@ -1,82 +1,45 @@
-###Libraries and imports
-import numpy as np
-import math
-import random
 import os
-import shutil
-import gzip
-import shutil
-import glob
-import gc
-import cv2 as cv
-import pandas as pd
-import matplotlib.pyplot as plt
-import tensorflow as tf
 import numpy as np
-import pandas as pd
-import tarfile
-import PIL
-import scipy.misc
-import skimage
-import nibabel as nib
-import matplotlib.pyplot as plt
-
-from PIL import Image
-from tqdm import tqdm
-from tensorflow import keras
-from keras.models import Model, load_model
-from keras.layers import Input ,BatchNormalization , Activation 
-from keras.layers.convolutional import Conv2D, UpSampling2D
-from keras.layers.pooling import MaxPooling2D
-from keras.layers.merge import concatenate
-from keras.callbacks import EarlyStopping, ModelCheckpoint
-from keras import optimizers 
-from keras import backend as K
-from sklearn.model_selection import train_test_split
-from skimage.morphology import ball, disk, dilation, binary_erosion, remove_small_objects, erosion, closing, reconstruction, binary_closing
-from skimage.measure import label,regionprops, perimeter
-from skimage.morphology import binary_dilation, binary_opening
-from skimage.filters import roberts, sobel
-from skimage import measure, feature
-from skimage.segmentation import clear_border
-from skimage import data
-from skimage.io import imread
-from scipy import ndimage as ndi
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from glob import glob
-
 import torch
-import torch.nn as nn
-import torchvision.models as models
-import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import train_test_split
+from glob import glob
+import nibabel as nib
 
-import sys
-path2 = '/content/drive/Shareddrives/'
-sys.path.append(path2)
-!mkdir data
+# Define a custom Dataset class for BraTS21
+class BraTSDataset(Dataset):
+    def __init__(self, image_paths, mask_paths, transform=None):
+        self.image_paths = image_paths
+        self.mask_paths = mask_paths
+        self.transform = transform
 
-tar = tarfile.open("/content/drive/Shareddrives/data/BraTS2021_Training_Data.tar")
-tar.extractall("./data")
-tar.close()
+    def __len__(self):
+        return len(self.image_paths)
 
-tar = tarfile.open("/content/drive/Shareddrives/data/BraTS2021_00495.tar")
-tar.extractall("./data")
-tar.close()
+    def __getitem__(self, idx):
+        image = nib.load(self.image_paths[idx]).get_fdata()
+        mask = nib.load(self.mask_paths[idx]).get_fdata()
+        image = np.expand_dims(image, axis=0)  # Add channel dimension
+        mask = np.expand_dims(mask, axis=0)  # Add channel dimension
+        sample = {'image': image, 'mask': mask}
+        
+        if self.transform:
+            sample = self.transform(sample)
+        
+        return sample
 
-tar = tarfile.open("/content/drive/Shareddrives/data/BraTS2021_00621.tar")
-tar.extractall("./data", )
-tar.close()
+# Load image and mask paths
+image_paths = sorted(glob('/content/drive/Shareddrives/data/BraTS21/images/*.nii.gz'))
+mask_paths = sorted(glob('/content/drive/Shareddrives/data/BraTS21/masks/*.nii.gz'))
 
-img_id = "01281"
-plt.figure(figsize=(18, 5))
-for i, nii in enumerate([f'./data/BraTS2021_{img_id}/BraTS2021_{img_id}_{s_type}.nii.gz' for s_type in ["flair", "t1", "t1ce", "t2", "seg"]]):
-    plt.subplot(1,5,i+1)
-    image=nib.load(nii).get_fdata()
-    plt.title(nii.rsplit("_", 1)[1].split(".", 1)[0], fontweight="bold")
-    plt.axis(False)
-    plt.imshow(image[:, :, 80], cmap="bone")
-plt.tight_layout()    
-plt.show()
+# Split into training and validation sets
+train_images, val_images, train_masks, val_masks = train_test_split(image_paths, mask_paths, test_size=0.2, random_state=42)
+
+# Create DataLoaders
+train_dataset = BraTSDataset(train_images, train_masks)
+val_dataset = BraTSDataset(val_images, val_masks)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False)
 
 import torch.nn as nn
 import torch.nn.functional as F
