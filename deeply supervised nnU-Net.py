@@ -1,7 +1,86 @@
+###Libraries and imports
+import numpy as np
+import math
+import random
+import os
+import shutil
+import gzip
+import shutil
+import glob
+import gc
+import cv2 as cv
+import pandas as pd
+import matplotlib.pyplot as plt
+import tensorflow as tf
+import numpy as np
+import pandas as pd
+import tarfile
+import PIL
+import scipy.misc
+import skimage
+import nibabel as nib
+import matplotlib.pyplot as plt
+
+from PIL import Image
+from tqdm import tqdm
+from tensorflow import keras
+from keras.models import Model, load_model
+from keras.layers import Input ,BatchNormalization , Activation 
+from keras.layers.convolutional import Conv2D, UpSampling2D
+from keras.layers.pooling import MaxPooling2D
+from keras.layers.merge import concatenate
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras import optimizers 
+from keras import backend as K
+from sklearn.model_selection import train_test_split
+from skimage.morphology import ball, disk, dilation, binary_erosion, remove_small_objects, erosion, closing, reconstruction, binary_closing
+from skimage.measure import label,regionprops, perimeter
+from skimage.morphology import binary_dilation, binary_opening
+from skimage.filters import roberts, sobel
+from skimage import measure, feature
+from skimage.segmentation import clear_border
+from skimage import data
+from skimage.io import imread
+from scipy import ndimage as ndi
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from glob import glob
+
 import torch
 import torch.nn as nn
 import torchvision.models as models
 import torch.nn.functional as F
+
+import sys
+path2 = '/content/drive/Shareddrives/'
+sys.path.append(path2)
+!mkdir data
+
+tar = tarfile.open("/content/drive/Shareddrives/data/BraTS2021_Training_Data.tar")
+tar.extractall("./data")
+tar.close()
+
+tar = tarfile.open("/content/drive/Shareddrives/data/BraTS2021_00495.tar")
+tar.extractall("./data")
+tar.close()
+
+tar = tarfile.open("/content/drive/Shareddrives/data/BraTS2021_00621.tar")
+tar.extractall("./data", )
+tar.close()
+
+img_id = "01281"
+plt.figure(figsize=(18, 5))
+for i, nii in enumerate([f'./data/BraTS2021_{img_id}/BraTS2021_{img_id}_{s_type}.nii.gz' for s_type in ["flair", "t1", "t1ce", "t2", "seg"]]):
+    plt.subplot(1,5,i+1)
+    image=nib.load(nii).get_fdata()
+    plt.title(nii.rsplit("_", 1)[1].split(".", 1)[0], fontweight="bold")
+    plt.axis(False)
+    plt.imshow(image[:, :, 80], cmap="bone")
+plt.tight_layout()    
+plt.show()
+
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.models as models
 
 class CustomEncoder(nn.Module):
     def __init__(self, resnet, vgg):
@@ -21,23 +100,23 @@ class CustomEncoder(nn.Module):
         x_vgg = self.vgg(x)
         x = torch.cat((x_resnet, x_vgg), dim=1)  # Concatenate along the channel dimension
         
-        x = F.relu(self.conv1(x))
+        x = F.leaky_relu(self.conv1(x))
         x = self.pool(x)
         x = self.dropout(x)
         
-        x = F.relu(self.conv2(x))
+        x = F.leaky_relu(self.conv2(x))
         x = self.pool(x)
         x = self.dropout(x)
         
-        x = F.relu(self.conv3(x))
+        x = F.leaky_relu(self.conv3(x))
         x = self.pool(x)
         x = self.dropout(x)
         
-        x = F.relu(self.conv4(x))
+        x = F.leaky_relu(self.conv4(x))
         x = self.pool(x)
         x = self.dropout(x)
         
-        x = F.relu(self.conv5(x))
+        x = F.leaky_relu(self.conv5(x))
         x = self.pool(x)
         x = self.dropout(x)
         
@@ -67,26 +146,26 @@ class CustomDecoder(nn.Module):
     def forward(self, x, encoder_features):
         x = self.deconv1(x)
         x = torch.cat((x, encoder_features[4]), dim=1)
-        x = F.relu(self.conv1(x))
+        x = F.leaky_relu(self.conv1(x))
         
         x = self.deconv2(x)
         x = torch.cat((x, encoder_features[3]), dim=1)
-        x = F.relu(self.conv2(x))
+        x = F.leaky_relu(self.conv2(x))
         
         x = self.deconv3(x)
         x = torch.cat((x, encoder_features[2]), dim=1)
-        x = F.relu(self.conv3(x))
+        x = F.leaky_relu(self.conv3(x))
         
         x = self.deconv4(x)
         x = torch.cat((x, encoder_features[1]), dim=1)
-        x = F.relu(self.conv4(x))
+        x = F.leaky_relu(self.conv4(x))
         
         x = self.deconv5(x)
         x = torch.cat((x, encoder_features[0]), dim=1)
-        x = F.relu(self.conv5(x))
+        x = F.leaky_relu(self.conv5(x))
         
         x = self.flatten(x)
-        x = F.relu(self.fc1(x))
+        x = F.leaky_relu(self.fc1(x))
         x = self.dropout(x)
         x = self.fc2(x)
         x = x.view(-1, 32, 64, 64, 64)
@@ -106,27 +185,27 @@ class DeepSupervisedUNet(nn.Module):
         x_vgg = self.encoder.vgg(x)
         x = torch.cat((x_resnet, x_vgg), dim=1)  # Concatenate along the channel dimension
         
-        x = F.relu(self.encoder.conv1(x))
+        x = F.leaky_relu(self.encoder.conv1(x))
         encoder_features.append(x)
         x = self.encoder.pool(x)
         x = self.encoder.dropout(x)
         
-        x = F.relu(self.encoder.conv2(x))
+        x = F.leaky_relu(self.encoder.conv2(x))
         encoder_features.append(x)
         x = self.encoder.pool(x)
         x = self.encoder.dropout(x)
         
-        x = F.relu(self.encoder.conv3(x))
+        x = F.leaky_relu(self.encoder.conv3(x))
         encoder_features.append(x)
         x = self.encoder.pool(x)
         x = self.encoder.dropout(x)
         
-        x = F.relu(self.encoder.conv4(x))
+        x = F.leaky_relu(self.encoder.conv4(x))
         encoder_features.append(x)
         x = self.encoder.pool(x)
         x = self.encoder.dropout(x)
         
-        x = F.relu(self.encoder.conv5(x))
+        x = F.leaky_relu(self.encoder.conv5(x))
         encoder_features.append(x)
         x = self.encoder.pool(x)
         x = self.encoder.dropout(x)
@@ -148,6 +227,7 @@ encoder = CustomEncoder(resnet=resnet34, vgg=vgg16)
 
 # Create the deeply supervised nnU-Net model
 model = DeepSupervisedUNet(encoder=encoder)
+
 
 def train_model(model, dataloader, criterion, optimizer, num_epochs=25):
     model.train()
