@@ -1,10 +1,3 @@
-"""
-Author: Md. Shabbir Ahmmed
-
-Multiclass semantic segmentation using U-Net with VGG16 and ResNet34 
-as backbones
-"""
-
 import tensorflow as tf
 import segmentation_models as sm
 import glob
@@ -40,7 +33,6 @@ train_masks = []
 for directory_path in glob.glob("128_patches/masks/"):
     for mask_path in glob.glob(os.path.join(directory_path, "*.tif")):
         mask = cv2.imread(mask_path, 0)       
-        #mask = cv2.resize(mask, (SIZE_Y, SIZE_X), interpolation = cv2.INTER_NEAREST)  #Otherwise ground truth changes due to interpolation
         train_masks.append(mask)
         
 #Convert list to array for machine learning processing          
@@ -63,8 +55,6 @@ np.unique(train_masks_encoded_original_shape)
 
 train_masks_input = np.expand_dims(train_masks_encoded_original_shape, axis=3)
 
-#Create a subset of data for quick testing
-#Picking 10% for testing and remaining for training
 from sklearn.model_selection import train_test_split
 X1, X_test, y1, y_test = train_test_split(train_images, train_masks_input, test_size = 0.10, random_state = 0)
 
@@ -97,7 +87,6 @@ total_loss = dice_loss + (1 * focal_loss)
 
 metrics = [sm.metrics.IOUScore(threshold=0.5), sm.metrics.FScore(threshold=0.5)]
 
-
 ########################################################################
 ###Model 1
 BACKBONE1 = 'resnet34'
@@ -110,7 +99,7 @@ X_test1 = preprocess_input1(X_test)
 # define model
 model1 = sm.Unet(BACKBONE1, encoder_weights='imagenet', classes=n_classes, activation=activation)
 
-# compile keras model with defined optimizer, loss and metrics
+# compile keras model with defined optimozer, loss and metrics
 model1.compile(optim, total_loss, metrics=metrics)
 
 #model1.compile(optimizer='adam', loss='categorical_crossentropy', metrics=metrics)
@@ -127,21 +116,19 @@ history1=model1.fit(X_train1,
 
 
 model1.save('res34_backbone_20epochs.hdf5')
-
-
-#####################################################
+############################################################
 ###Model 2
 
-BACKBONE2 = 'vgg16'
-preprocess_input2 = sm.get_preprocessing(BACKBONE3)
+BACKBONE2 = 'VGG16'
+preprocess_input2 = sm.get_preprocessing(BACKBONE2)
 
 # preprocess input
 X_train2 = preprocess_input2(X_train)
 X_test2 = preprocess_input2(X_test)
 
-
 # define model
 model2 = sm.Unet(BACKBONE2, encoder_weights='imagenet', classes=n_classes, activation=activation)
+
 
 # compile keras model with defined optimozer, loss and metrics
 model2.compile(optim, total_loss, metrics)
@@ -149,6 +136,7 @@ model2.compile(optim, total_loss, metrics)
 
 
 print(model2.summary())
+
 
 history2=model2.fit(X_train2, 
           y_train_cat,
@@ -158,7 +146,7 @@ history2=model2.fit(X_train2,
           validation_data=(X_test2, y_test_cat))
 
 
-model2.save('vgg16_backbone_20epochs.hdf5')
+model2.save('VGG16_backbone_20epochs.hdf5')
 
 
 ##########################################################
@@ -191,64 +179,109 @@ plt.show()
 
 from keras.models import load_model
 
-### FOR NOW LET US FOCUS ON A SINGLE MODEL
-
 #Set compile=False as we are not loading it for training, only for prediction.
 model1 = load_model('saved_models/res34_backbone_20epochs.hdf5', compile=False)
-model2 = load_model('saved_models/vgg16_backbone_20epochs.hdf5', compile=False)
+model2 = load_model('saved_models/VGG16_backbone_20epochs.hdf5', compile=False)
 
-#IOU
-y_pred1=model2.predict(X_test2)
-y_pred1_argmax=np.argmax(y_pred1, axis=3)
+#Weighted average ensemble
+models = [model1, model2]
+#preds = [model.predict(X_test) for model in models]
+
+pred1 = model1.predict(X_test1)
+pred2 = model2.predict(X_test2)
+
+preds=np.array([pred1, pred2])
+
+#preds=np.array(preds)
+weights = [0.3, 0.4]
+
+#Use tensordot to sum the products of all elements over specified axes.
+weighted_preds = np.tensordot(preds, weights, axes=((0),(0)))
+weighted_ensemble_prediction = np.argmax(weighted_preds, axis=3)
+
+y_pred1_argmax=np.argmax(pred1, axis=3)
+y_pred2_argmax=np.argmax(pred2, axis=3)
 
 
 #Using built in keras function
-#from keras.metrics import MeanIoU
 n_classes = 4
-IOU_keras = MeanIoU(num_classes=n_classes)  
-IOU_keras.update_state(y_test[:,:,:,0], y_pred1_argmax)
-print("Mean IoU =", IOU_keras.result().numpy())
+IOU1 = MeanIoU(num_classes=n_classes)  
+IOU2 = MeanIoU(num_classes=n_classes)    
+IOU_weighted = MeanIoU(num_classes=n_classes)  
+
+IOU1.update_state(y_test[:,:,:,0], y_pred1_argmax)
+IOU2.update_state(y_test[:,:,:,0], y_pred2_argmax)
+IOU_weighted.update_state(y_test[:,:,:,0], weighted_ensemble_prediction)
 
 
-#To calculate I0U for each class...
-values = np.array(IOU_keras.get_weights()).reshape(n_classes, n_classes)
-print(values)
-class1_IoU = values[0,0]/(values[0,0] + values[0,1] + values[0,2] + values[0,3] + values[1,0]+ values[2,0]+ values[3,0])
-class2_IoU = values[1,1]/(values[1,1] + values[1,0] + values[1,2] + values[1,3] + values[0,1]+ values[2,1]+ values[3,1])
-class3_IoU = values[2,2]/(values[2,2] + values[2,0] + values[2,1] + values[2,3] + values[0,2]+ values[1,2]+ values[3,2])
-class4_IoU = values[3,3]/(values[3,3] + values[3,0] + values[3,1] + values[3,2] + values[0,3]+ values[1,3]+ values[2,3])
+print('IOU Score for model1 = ', IOU1.result().numpy())
+print('IOU Score for model2 = ', IOU2.result().numpy())
+print('IOU Score for weighted average ensemble = ', IOU_weighted.result().numpy())
+###########################################
+#Grid search for the best combination of w1, w2, w3 that gives maximum acuracy
 
-print("IoU for class1 is: ", class1_IoU)
-print("IoU for class2 is: ", class2_IoU)
-print("IoU for class3 is: ", class3_IoU)
-print("IoU for class4 is: ", class4_IoU)
+import pandas as pd
+df = pd.DataFrame([])
 
-#Vaerify the prediction on first image
-plt.imshow(train_images[0, :,:,0], cmap='gray')
-plt.imshow(train_masks[0], cmap='gray')
-##############################################################
-
-#Test some random images
-# import random
-# test_img_number = random.randint(0, len(X_test2))
-# test_img = X_test2[test_img_number]
-# ground_truth=y_test[test_img_number]
-# test_img_input=np.expand_dims(test_img, 0)
-
-# test_img_input1 = preprocess_input2(test_img_input)
-
-# test_pred1 = model2.predict(test_img_input1)
-# test_prediction1 = np.argmax(test_pred1, axis=3)[0,:,:]
+for w1 in range(0, 4):
+    for w3 in range(0,4):
+        wts = [w1/10.,w2/10.]
+            
+        IOU_wted = MeanIoU(num_classes=n_classes) 
+        wted_preds = np.tensordot(preds, wts, axes=((0),(0)))
+        wted_ensemble_pred = np.argmax(wted_preds, axis=3)
+        IOU_wted.update_state(y_test[:,:,:,0], wted_ensemble_pred)
+        print("Now predciting for weights :", w1/10., w2/10., " : IOU = ", IOU_wted.result().numpy())
+        df = df.append(pd.DataFrame({'wt1':wts[0],'wt2':wts[1], 
+                                          'IOU': IOU_wted.result().numpy()}, index=[0]), ignore_index=True)
+            
+max_iou_row = df.iloc[df['IOU'].idxmax()]
+print("Max IOU of ", max_iou_row[2], " obained with w1=", max_iou_row[0],
+      " w2=", max_iou_row[1])         
 
 
-# plt.figure(figsize=(12, 8))
-# plt.subplot(231)
-# plt.title('Testing Image')
-# plt.imshow(test_img[:,:,0], cmap='gray')
-# plt.subplot(232)
-# plt.title('Testing Label')
-# plt.imshow(ground_truth[:,:,0], cmap='gray')
-# plt.subplot(233)
-# plt.title('Prediction on test image')
-# plt.imshow(test_prediction1, cmap='gray')
-# plt.show()
+#############################################################
+opt_weights = [max_iou_row[0], max_iou_row[1]]
+
+#Use tensordot to sum the products of all elements over specified axes.
+opt_weighted_preds = np.tensordot(preds, opt_weights, axes=((0),(0)))
+opt_weighted_ensemble_prediction = np.argmax(opt_weighted_preds, axis=3)
+#######################################################
+#Predict on a few images
+
+import random
+test_img_number = random.randint(0, len(X_test))
+test_img = X_test[test_img_number]
+ground_truth=y_test[test_img_number]
+test_img_norm=test_img[:,:,:]
+test_img_input=np.expand_dims(test_img_norm, 0)
+
+#Weighted average ensemble
+models = [model1, model2]
+
+test_img_input1 = preprocess_input1(test_img_input)
+test_img_input2 = preprocess_input2(test_img_input)
+
+test_pred1 = model1.predict(test_img_input1)
+test_pred2 = model2.predict(test_img_input2)
+
+test_preds=np.array([test_pred1, test_pred2])
+
+#Use tensordot to sum the products of all elements over specified axes.
+weighted_test_preds = np.tensordot(test_preds, opt_weights, axes=((0),(0)))
+weighted_ensemble_test_prediction = np.argmax(weighted_test_preds, axis=3)[0,:,:]
+
+
+plt.figure(figsize=(12, 8))
+plt.subplot(231)
+plt.title('Testing Image')
+plt.imshow(test_img[:,:,0], cmap='gray')
+plt.subplot(232)
+plt.title('Testing Label')
+plt.imshow(ground_truth[:,:,0], cmap='jet')
+plt.subplot(233)
+plt.title('Prediction on test image')
+plt.imshow(weighted_ensemble_test_prediction, cmap='jet')
+plt.show()
+
+#####################################################################
