@@ -69,8 +69,8 @@ class BraTSDataset(Dataset):
         return sample
 
 # Load image and mask paths
-image_paths = sorted(glob('/path/to/BraTS21/images/*.nii.gz'))
-mask_paths = sorted(glob('/path/to/BraTS21/masks/*.nii.gz'))
+image_paths = sorted(glob('/content/drive/Shareddrives/data/BraTS21/images/*.nii.gz'))
+mask_paths = sorted(glob('/content/drive/Shareddrives/data/BraTS21/masks/*.nii.gz'))
 
 # Split into training and validation sets
 train_images, val_images, train_masks, val_masks = train_test_split(image_paths, mask_paths, test_size=0.2, random_state=42)
