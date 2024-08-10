@@ -224,7 +224,7 @@ import pandas as pd
 df = pd.DataFrame([])
 
 for w1 in range(0, 4):
-    for w3 in range(0,4):
+    for w2 in range(0,4):
         wts = [w1/10.,w2/10.]
             
         IOU_wted = MeanIoU(num_classes=n_classes) 
